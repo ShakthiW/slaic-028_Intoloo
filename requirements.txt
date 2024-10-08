@@ -1,6 +1,12 @@
-streamlit 
-openai 
-llama-index 
+streamlit
+openai
+llama-index
 llama-hub 
-pypdf 
+pypdf
 nest_asyncio
+crewai
+crewai-tools
+plotly
+pandas
+dotenv
+pydantic

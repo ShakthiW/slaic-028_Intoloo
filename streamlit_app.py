@@ -1,6 +1,7 @@
 import streamlit as st
 import openai
 import nest_asyncio
+import requests
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.core.query_engine import SubQuestionQueryEngine
@@ -26,6 +27,7 @@ nest_asyncio.apply()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 serper_api_key = os.getenv("SERPER_API_KEY")
+apify_api_key = os.getenv("APIFY_API_KEY")
 
 # Check if the environment variables are set
 if openai_api_key is None:
@@ -165,26 +167,27 @@ scrape_task = Task(
 
 analysis_task = Task(
     description=(
-        "Get a sentiment label for all the tweets from the internet"
+        "Analyze the sentiment of tweets and social media posts for the Sri Lankan presidential candidates."
+        "Classify the content into Positive(label=1) and Negative(label=0) categories."
     ),
-    expected_output=f"The sentiments for all the tweets scraped by the Scaper "
-        "and classify presidential election tweets into: Positive(label=1), and Negative(label=0)",
+    expected_output=f"A JSON file that contains sentiment labels for all the data scraped from tweets and "
+                    "social media posts.",
     human_input=True,
-    # output_json=Sentiments, 
-      # Outputs the tweets and sentiments as a JSON file'
+    output_json=Sentiments,
+    # output_file="combined_sentiments.json",
     agent=analyst
 )
 
 prediction_task = Task(
     description=(
-        "Give a percentage chance of winning for each of the 3 candidates and "
-        "the sum of the percentages should be eqal to 100%. Use the given weights for the "
-        "final score considering both poling data and the sentiments."
+        "Predict the percentage chance of winning for each of the 3 candidates "
+        "based on the combined tweet and social media sentiment data, along with polling data. "
+        "Ensure that the sum of percentages equals 100%, and apply weights (0.4 for sentiment, 0.6 for polling data)."
     ),
-    expected_output=f"A JSON file that has the percentage chance of winning for each of "
-        "the 3 leading presidential candidates. "
-        "rw: Ranil Wickramasinghe, sp: Sajith Premadasa, akd: Anura Kumara Dissanayake",
-    output_json=Results, 
+    expected_output=f"A JSON file with the winning chances of the 3 presidential candidates based on both "
+                    "tweets and social media sentiment, as well as polling data.",
+    output_json=Results,
+    output_file="final_prediction.json",
     agent=predictor
 )
 
@@ -201,11 +204,42 @@ presidential_election_crew = Crew(
     verbose=True
 )
 
+def fetch_social_media_data():
+    run_sync_url = f"https://api.apify.com/v2/acts/apify~social-media-hashtag-research/run-sync?token={apify_api_key}"
+    response = requests.post(run_sync_url)
+    if response.status_code == 200:
+        print("API call successful, fetching data...")
+        data_fetch_url = f"https://api.apify.com/v2/datasets/zUDZ1VZh9vnnuppNR/items?token={apify_api_key}"
+        data_response = requests.get(data_fetch_url)
+        if data_response.status_code == 200:
+            social_media_data = data_response.json()
+            return social_media_data
+        else:
+            print("Error fetching social media data.")
+            return None
+    else:
+        print("Error running social media hashtag research API.")
+        return None
+
 # Function to run CrewAI and get election predictions
 def get_election_predictions(polling_data_json):
+    # Initialize social_media_data
+    social_media_data = []
+
+    # Fetch social media data
+    social_media_data = fetch_social_media_data()
+    if social_media_data:
+        for entry in social_media_data:
+            print(f"Post: {entry['text']}")
+            print(f"Source: {entry['fromSocial']}")
+            # Now pass 'entry["text"]' to sentiment analysis
+    else:
+        print("Error fetching social media data.")
+    
     input_data = {
         "poling_data": polling_data_json,
-        "candidates": candidates
+        "candidates": candidates,
+        "social_media_data": social_media_data
     }
      
     # Define the crew with agents and tasks
@@ -243,24 +277,6 @@ def rag_model_answer(candidate, question):
 # Streamlit App with Tabs
 tab1, tab2, tab3 = st.tabs(["Manifesto Comparison", "Election Predictions", "RAG Manifesto Q&A"])
 
-# # Chatbot Input
-# user_input = st.text_input("What do you want to compair in the manifestos:")
-
-# # Generate response and update conversation history
-# if user_input:
-#     # Query the sub-query engine
-#     response = sub_query_engine.query(user_input)
-    
-#     # Append question and response to session state
-#     st.session_state.history.append((user_input, str(response)))
-
-# # Display conversation history
-# if st.session_state.history:
-#     st.subheader("Your Questions and Answers:")
-#     for i, (question, answer) in enumerate(st.session_state.history):
-#         st.markdown(f"**Q{i+1}: {question}**")
-#         st.markdown(f"*A{i+1}: {answer}*")
-
 # Manifesto Comparison Tab
 with tab1:
     st.header("Compare Candidates' Manifestos")
@@ -280,7 +296,7 @@ with tab1:
         st.subheader("Your Questions and Answers:")
         for i, (question, answer) in enumerate(st.session_state.history):
             st.markdown(f"**Q{i+1}: {question}**")
-            st.markdown(f"*A{i+1}: {answer}*")
+            st.markdown(f"{answer}")
 
 
 # Election Predictions Tab
